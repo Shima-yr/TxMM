@@ -15,7 +15,7 @@ from gensim.models import CoherenceModel
 # Initialize spacy 'en' model, keeping only tagger component (for efficiency)
 nlp = spacy.load('en_core_web_sm', disable=['parser', 'ner'])
 stop_words = stopwords.words('english')
-stop_words.extend(['from', 'subject', 'background', 'method', 'result','conclusion','aim','objective','study'])
+stop_words.extend(['from', 'subject', 'background', 'method', 'result','conclusion','aim','objective','study','outcome','use','may','treatment','anxiety','disorder'])
 
 def load_data(text_path):
   abstract = list()
@@ -32,10 +32,22 @@ def load_data(text_path):
 def proccess(data):
     # Remove punctuation
     data['abstract_processed'] = data['abstract'].map(lambda x: re.sub('[,\.!?]', '', x))
-    # Convert the titles to lowercase
+    # Convert to lowercase
     data['abstract_processed'] = data['abstract_processed'].map(lambda x: x.lower())
     abstract = data.abstract_processed.values.tolist()
+    #word_cloud(abstract)
     return list(tokenize(abstract))
+
+def word_cloud(list):
+    from wordcloud import WordCloud
+    long_string = ','.join(list)
+    # Create a WordCloud object
+    wordcloud = WordCloud(background_color="white", max_words=5000, contour_width=3, contour_color='steelblue')
+
+    img= wordcloud.generate(long_string)
+    img.to_file('worcloud.jpeg')
+
+
 
 def tokenize(sentences):
     for sentence in sentences:
@@ -47,11 +59,7 @@ def remove_stopwords(texts):
 def make_bigrams(texts,bigram_mod):
     return [bigram_mod[doc] for doc in texts]
 
-#def make_trigrams(texts,trigram_mod,bigram_mod):
- #   return [trigram_mod[bigram_mod[doc]] for doc in texts]
-
 def lemmatization(texts, allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV']):
-    """https://spacy.io/api/annotation"""
     texts_out = []
     for sent in texts:
         doc = nlp(" ".join(sent))
@@ -70,6 +78,7 @@ def compute_coherence_values(corpus, dictionary,texts, k, a, b):
                                            alpha=a,
                                            eta=b)
 
+
     coherence_model_lda = CoherenceModel(model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v')
 
     return coherence_model_lda.get_coherence()
@@ -82,9 +91,9 @@ def parameter_tunning(corpus,id2word,data_lemmatized):
     grid['Validation_Set'] = {}
 
     # Topics range
-    min_topics = 2
-    max_topics = 20
-    step_size = 5
+    min_topics = 30
+    max_topics = 40
+    step_size = 10
     topics_range = range(min_topics, max_topics, step_size)
 
     # Alpha parameter
@@ -137,20 +146,18 @@ def parameter_tunning(corpus,id2word,data_lemmatized):
         pd.DataFrame(model_results).to_csv('lda_tuning_results.csv', index=False)
         pbar.close()
 def build_lda_model(corpus,id2word):
-    # Build LDA model
     lda_model = gensim.models.LdaMulticore(corpus=corpus,
                                            id2word=id2word,
                                            num_topics=30,
                                            random_state=100,
                                            chunksize=100,
                                            passes=10,
-                                           alpha='asymmetric',
-                                           eta=0.9)
-    #lda_model = gensim.models.LdaMulticore(corpus=corpus, id2word=id2word, num_topics=10,  random_state=100, chunksize=100, passes=10, per_word_topics=True)
+                                           alpha='asymmetric'
+                                           , eta=0.9)
+
 
     # Print the Keyword in the 10 topics
     pprint(lda_model.print_topics())
-    doc_lda = lda_model[corpus]
     return lda_model
 
 def compute_coherence_score(lda_model,data_lemmatized,id2word):
@@ -162,13 +169,10 @@ def compute_coherence_score(lda_model,data_lemmatized,id2word):
 
 def visualize(lda_model,corpus,id2word):
     import pyLDAvis.gensim
-    import pickle
     import pyLDAvis
     # Visualize the topics
     LDAvis_prepared = pyLDAvis.gensim.prepare(lda_model, corpus, id2word)
-    pyLDAvis.save_html(LDAvis_prepared, 'index_lda.html')
-    os.remove('index_lda.html')
-
+    pyLDAvis.save_html(LDAvis_prepared, 'index30a_finallly_lda.html')
 
 def main():
     data=load_data("data/input.txt")
@@ -176,10 +180,7 @@ def main():
     #print(data_words[:1][0][:30])
 
     bigram = gensim.models.Phrases(data_words, min_count=5, threshold=100)  # higher threshold fewer phrases.
-    #trigram = gensim.models.Phrases(bigram[data_words], threshold=100)
-    # Faster way to get a sentence clubbed as a trigram/bigram
     bigram_mod = gensim.models.phrases.Phraser(bigram)
-    #trigram_mod = gensim.models.phrases.Phraser(trigram)
 
     # Remove Stop Words
     data_words_nostops = remove_stopwords(data_words)
@@ -192,17 +193,17 @@ def main():
 
     # Create Dictionary
     id2word = corpora.Dictionary(data_lemmatized)
-    # Create Corpus
-    texts = data_lemmatized
     # Term Document Frequency
-    corpus = [id2word.doc2bow(text) for text in texts]
+    corpus = [id2word.doc2bow(text) for text in data_lemmatized]
     # View
     #print(corpus[:1])
 
-    lda_model=build_lda_model(corpus, id2word)
-    compute_coherence_score(lda_model, data_lemmatized, id2word)
-
     #parameter_tunning(corpus,id2word,data_lemmatized)
+
+    # Build LDA model
+    lda_model=build_lda_model(corpus, id2word)
+
+    compute_coherence_score(lda_model, data_lemmatized, id2word)
 
     visualize(lda_model, corpus, id2word)
 
